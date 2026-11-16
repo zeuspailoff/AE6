@@ -329,6 +329,128 @@ $ docker exec dpl-cliente curl -s -X POST -d usuario=alumno&password=CAMBIAR_EST
 {"autenticado": true, "usuario": "alumno", "perfil": {"cn": "Alumno DPL", "mail": "alumno@dpl.local"}}[codigo de salida: 0]
 ```
 
+
+## Fallo 4: Servidor de aplicaciones
+
+### Como se provoco
+
+Se detuvo el contenedor de la aplicacion (Django/Gunicorn). Al pararlo a mano, la politica restart: unless-stopped no lo vuelve a levantar:
+
+```
+$ docker stop dpl-ae4-app-1
+dpl-ae4-app-1
+[codigo de salida: 0]
+```
+
+- **Sintoma observado:** www.dpl.local sigue resolviendo y el puerto 80 responde, pero devuelve error 502; la aplicacion no responde en su puerto 8000 y el login falla.
+
+```
+$ docker exec dpl-cliente dig +short @172.30.0.10 www.dpl.local A
+172.30.0.30
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-cliente curl -sS --max-time 5 -I http://www.dpl.local
+curl: (28) Operation timed out after 5002 milliseconds with 0 bytes received
+[codigo de salida: 28]
+```
+
+```
+$ docker exec dpl-cliente curl -sS --max-time 5 -o /dev/null -w HTTP %{http_code}\n http://app.dpl.local:8000/healthz
+curl: (28) Connection timed out after 5002 milliseconds
+HTTP 000
+[codigo de salida: 28]
+```
+
+```
+$ docker exec dpl-cliente curl -sS --max-time 5 -o /dev/null -w HTTP %{http_code}\n -X POST -d usuario=alumno&password=CAMBIAR_ESTO http://www.dpl.local/api/login
+HTTP 502
+[codigo de salida: 0]
+```
+
+- **Causa:** el contenedor dpl-ae4-app-1 esta parado (Exited). nginx esta sano, pero su upstream no existe; por eso la web da 502 y la aplicacion no escucha en el puerto 8000.
+
+- **Comprobacion:** estado de los contenedores, log de la aplicacion y log de nginx:
+
+```
+$ docker ps -a --filter name=dpl-ae4 --format table {{.Names}}\t{{.Status}}
+NAMES               STATUS
+dpl-ae4-app-1       Exited (0) 19 seconds ago
+dpl-ae4-nginx-1     Up 5 minutes
+dpl-ae4-pgadmin-1   Up 25 minutes
+dpl-ae4-db-1        Up 25 minutes (healthy)
+[codigo de salida: 0]
+```
+
+```
+$ docker inspect -f {{.State.Status}} exit={{.State.ExitCode}} dpl-ae4-app-1
+exited exit=0
+[codigo de salida: 0]
+```
+
+```
+$ docker logs --tail 4 dpl-ae4-app-1
+[2026-11-16 23:46:41 +0000] [1] [INFO] Handling signal: term
+[2026-11-17 00:46:41 +0100] [7] [INFO] Worker exiting (pid: 7)
+[2026-11-17 00:46:41 +0100] [8] [INFO] Worker exiting (pid: 8)
+[2026-11-16 23:46:41 +0000] [1] [INFO] Shutting down: Master
+[codigo de salida: 0]
+```
+
+```
+$ docker logs --tail 3 dpl-ae4-nginx-1
+172.30.0.20 - - [16/Nov/2026:23:46:51 +0000] "HEAD / HTTP/1.1" 499 0 "-" "curl/8.5.0" "-"
+2026/11/16 23:47:00 [error] 25#25: *7 connect() failed (113: Host is unreachable) while connecting to upstream, client: 172.30.0.20, server: _, request: "POST /api/login HTTP/1.1", upstream: "http://172.18.0.4:8000/api/login", host: "www.dpl.local"
+172.30.0.20 - - [16/Nov/2026:23:47:00 +0000] "POST /api/login HTTP/1.1" 502 157 "-" "curl/8.5.0" "-"
+[codigo de salida: 0]
+```
+
+- **Correccion aplicada:** se arranca la aplicacion, se espera a su healthcheck y se reinicia nginx para que vuelva a resolver el nombre del upstream.
+
+```
+$ docker start dpl-ae4-app-1
+dpl-ae4-app-1
+[codigo de salida: 0]
+```
+
+```
+$ docker ps --filter name=dpl-ae4-app --format table {{.Names}}\t{{.Status}}
+NAMES           STATUS
+dpl-ae4-app-1   Up 15 seconds (healthy)
+[codigo de salida: 0]
+```
+
+```
+$ docker restart dpl-ae4-nginx-1
+dpl-ae4-nginx-1
+[codigo de salida: 0]
+```
+
+- **Verificacion final:**
+
+```
+$ docker exec dpl-cliente curl -sS --max-time 5 -o /dev/null -w HTTP %{http_code}\n http://app.dpl.local:8000/healthz
+HTTP 200
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-cliente curl -sS --max-time 5 -I http://www.dpl.local
+HTTP/1.1 200 OK
+Server: nginx/1.27.5
+Date: Mon, 16 Nov 2026 23:47:25 GMT
+Content-Type: text/html; charset=utf-8
+Connection: keep-alive
+
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-cliente curl -s -X POST -d usuario=alumno&password=CAMBIAR_ESTO http://www.dpl.local/api/login
+{"autenticado": true, "usuario": "alumno", "perfil": {"cn": "Alumno DPL", "mail": "alumno@dpl.local"}}[codigo de salida: 0]
+```
+
 ## Fallo 5: Autenticacion
 
 ### Como se provoco
@@ -385,27 +507,6 @@ dn:uid=alumno,ou=usuarios,dc=dpl,dc=local
 ```
 
 ```
-$ docker exec dpl-ae4-app-1 env
-PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-HOSTNAME=d0ae1dda6b59
-LDAP_HOST=ldap://172.30.0.10
-APP_DATA_DIR=/data
-APP_MENSAJE=Hola desde Compose
-DB_USER=alumno
-LDAP_BASE_DN=ou=personas,dc=dpl,dc=local
-LDAP_USER_FILTER=(uid=%s)
-DB_PASSWORD=CAMBIAR_ESTO
-DB_HOST=db
-DB_NAME=travelroad
-LANG=C.UTF-8
-GPG_KEY=7169605F62C751356D054A26A821E680E5FA6305
-PYTHON_VERSION=3.12.16
-PYTHON_SHA256=b5796915dc45ff745cfb4e990a7e7c93d6f546328a102ce31448d69ebc37575c
-HOME=/home/appuser
-[codigo de salida: 0]
-```
-
-```
 $ docker exec dpl-ae4-app-1 printenv LDAP_HOST LDAP_BASE_DN LDAP_USER_FILTER
 ldap://172.30.0.10
 ou=personas,dc=dpl,dc=local
@@ -452,125 +553,3 @@ HTTP 401
 [codigo de salida: 0]
 ```
 
-## Fallo 5: Autenticacion
-
-### Como se provoco
-
-Se recreo el contenedor de la aplicacion con una LDAP_BASE_DN erronea (ou=personas en lugar de ou=usuarios) y se reinicio nginx para que resuelva de nuevo el nombre del upstream:
-
-```
-$ en_ae4 env LDAP_BASE_DN=ou=personas,dc=dpl,dc=local docker compose -f compose.yml -f compose.ae6.yml up -d app
- Container dpl-ae4-db-1 Running 
- Container dpl-ae4-app-1 Recreate 
- Container dpl-ae4-app-1 Recreated 
- Container dpl-ae4-db-1 Waiting 
- Container dpl-ae4-db-1 Healthy 
- Container dpl-ae4-app-1 Starting 
- Container dpl-ae4-app-1 Started 
-[codigo de salida: 0]
-```
-
-```
-$ docker restart dpl-ae4-nginx-1
-dpl-ae4-nginx-1
-[codigo de salida: 0]
-```
-
-- **Sintoma observado:** la web y la aplicacion responden con normalidad, pero el login con credenciales correctas devuelve 401.
-
-```
-$ docker exec dpl-cliente curl -sS --max-time 5 -o /dev/null -w HTTP %{http_code}\n http://www.dpl.local
-HTTP 200
-[codigo de salida: 0]
-```
-
-```
-$ docker exec dpl-cliente curl -sS --max-time 5 -o /dev/null -w HTTP %{http_code}\n http://app.dpl.local:8000/healthz
-HTTP 200
-[codigo de salida: 0]
-```
-
-```
-$ docker exec dpl-cliente curl -s -w \nHTTP %{http_code}\n -X POST -d usuario=alumno&password=CAMBIAR_ESTO http://www.dpl.local/api/login
-{"autenticado": false, "usuario": "alumno", "detalle": "automatic bind not successful - invalidCredentials"}
-HTTP 401
-[codigo de salida: 0]
-```
-
-- **Causa:** la variable LDAP_BASE_DN de la aplicacion apunta a una unidad organizativa que no existe, asi que el DN con el que la vista intenta el bind (uid=alumno,ou=personas,...) no existe en el directorio. El directorio, el DNS, nginx y Gunicorn estan sanos.
-
-- **Comprobacion:** el directorio acepta las mismas credenciales con el DN correcto, y las variables LDAP_* del contenedor muestran la base equivocada:
-
-```
-$ docker exec dpl-cliente ldapwhoami -x -H ldap://172.30.0.10 -D uid=alumno,ou=usuarios,dc=dpl,dc=local -w CAMBIAR_ESTO
-dn:uid=alumno,ou=usuarios,dc=dpl,dc=local
-[codigo de salida: 0]
-```
-
-```
-$ docker exec dpl-ae4-app-1 env
-PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-HOSTNAME=d33bbba58d9b
-LDAP_BASE_DN=ou=personas,dc=dpl,dc=local
-LDAP_USER_FILTER=(uid=%s)
-APP_MENSAJE=Hola desde Compose
-LDAP_HOST=ldap://172.30.0.10
-DB_HOST=db
-DB_USER=alumno
-DB_PASSWORD=CAMBIAR_ESTO
-DB_NAME=travelroad
-APP_DATA_DIR=/data
-LANG=C.UTF-8
-GPG_KEY=7169605F62C751356D054A26A821E680E5FA6305
-PYTHON_VERSION=3.12.16
-PYTHON_SHA256=b5796915dc45ff745cfb4e990a7e7c93d6f546328a102ce31448d69ebc37575c
-HOME=/home/appuser
-[codigo de salida: 0]
-```
-
-```
-$ docker exec dpl-ae4-app-1 printenv LDAP_HOST LDAP_BASE_DN LDAP_USER_FILTER
-ldap://172.30.0.10
-ou=personas,dc=dpl,dc=local
-(uid=%s)
-[codigo de salida: 0]
-```
-
-- **Correccion aplicada:** se recrea la aplicacion con los valores por defecto del compose (LDAP_BASE_DN=ou=usuarios,dc=dpl,dc=local) y se reinicia nginx.
-
-```
-$ en_ae4 docker compose -f compose.yml -f compose.ae6.yml up -d app
- Container dpl-ae4-db-1 Running 
- Container dpl-ae4-app-1 Recreate 
- Container dpl-ae4-app-1 Recreated 
- Container dpl-ae4-db-1 Waiting 
- Container dpl-ae4-db-1 Healthy 
- Container dpl-ae4-app-1 Starting 
- Container dpl-ae4-app-1 Started 
-[codigo de salida: 0]
-```
-
-```
-$ docker restart dpl-ae4-nginx-1
-dpl-ae4-nginx-1
-[codigo de salida: 0]
-```
-
-- **Verificacion final:**
-
-```
-$ docker exec dpl-ae4-app-1 printenv LDAP_BASE_DN
-ou=usuarios,dc=dpl,dc=local
-[codigo de salida: 0]
-```
-
-```
-$ docker exec dpl-cliente curl -s -X POST -d usuario=alumno&password=CAMBIAR_ESTO http://www.dpl.local/api/login
-{"autenticado": true, "usuario": "alumno", "perfil": {"cn": "Alumno DPL", "mail": "alumno@dpl.local"}}[codigo de salida: 0]
-```
-
-```
-$ docker exec dpl-cliente curl -s -o /dev/null -w HTTP %{http_code}\n -X POST -d usuario=alumno&password=incorrecta http://www.dpl.local/api/login
-HTTP 401
-[codigo de salida: 0]
-```
