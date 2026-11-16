@@ -214,3 +214,117 @@ Connection: keep-alive
 $ docker exec dpl-cliente curl -s -X POST -d usuario=alumno&password=CAMBIAR_ESTO http://www.dpl.local/api/login
 {"autenticado": true, "usuario": "alumno", "perfil": {"cn": "Alumno DPL", "mail": "alumno@dpl.local"}}[codigo de salida: 0]
 ```
+
+## Fallo 3: Servidor Web
+
+### Como se provoco
+
+Se introdujo una errata en el server block de nginx (proxy_pass escrito como proxy_pas) y se reinicio el contenedor:
+
+```
+$ cambia_conf proxy_pass proxy_pas
+6:        proxy_pas http://app:8000;
+[codigo de salida: 0]
+```
+
+```
+$ docker restart dpl-ae4-nginx-1
+dpl-ae4-nginx-1
+[codigo de salida: 0]
+```
+
+- **Sintoma observado:** www.dpl.local no responde en el puerto 80. El DNS resuelve bien, pero curl falla; la aplicacion, en cambio, responde directamente en su puerto 8000.
+
+```
+$ docker exec dpl-cliente dig +short @172.30.0.10 www.dpl.local A
+172.30.0.30
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-cliente curl -sS --max-time 5 -I http://www.dpl.local
+curl: (28) Connection timed out after 5002 milliseconds
+[codigo de salida: 28]
+```
+
+```
+$ docker exec dpl-cliente curl -sS -o /dev/null -w HTTP %{http_code}\n http://app.dpl.local:8000/healthz
+HTTP 200
+[codigo de salida: 0]
+```
+
+- **Causa:** el server block tiene una directiva desconocida (proxy_pas), nginx no supera la validacion de configuracion y no llega a arrancar; Docker lo reinicia en bucle.
+
+- **Comprobacion:** el estado del contenedor y el log de nginx senalan la linea exacta:
+
+```
+$ docker ps -a --filter name=dpl-ae4-nginx --format table {{.Names}}\t{{.Status}}
+NAMES             STATUS
+dpl-ae4-nginx-1   Restarting (1) 5 seconds ago
+[codigo de salida: 0]
+```
+
+```
+$ docker logs --tail 6 dpl-ae4-nginx-1
+/docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh
+/docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh
+/docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh
+/docker-entrypoint.sh: Configuration complete; ready for start up
+2026/11/16 23:37:06 [emerg] 1#1: unknown directive "proxy_pas" in /etc/nginx/conf.d/default.conf:6
+nginx: [emerg] unknown directive "proxy_pas" in /etc/nginx/conf.d/default.conf:6
+[codigo de salida: 0]
+```
+
+- **Correccion aplicada:** se corrige la directiva a proxy_pass, se valida la sintaxis con una instancia temporal y se reinicia nginx.
+
+```
+$ cambia_conf proxy_pas  proxy_pass 
+6:        proxy_pass http://app:8000;
+[codigo de salida: 0]
+```
+
+```
+$ docker run --rm -v D:/Fp informatica/2 curso/trabajos AE/dpl-ae4/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro --add-host app:127.0.0.1 nginx:1.27-alpine nginx -t
+/docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration
+/docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/
+/docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh
+10-listen-on-ipv6-by-default.sh: info: can not modify /etc/nginx/conf.d/default.conf (read-only file system?)
+/docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh
+/docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh
+/docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh
+/docker-entrypoint.sh: Configuration complete; ready for start up
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+[codigo de salida: 0]
+```
+
+```
+$ docker restart dpl-ae4-nginx-1
+dpl-ae4-nginx-1
+[codigo de salida: 0]
+```
+
+- **Verificacion final:**
+
+```
+$ docker ps --filter name=dpl-ae4-nginx --format table {{.Names}}\t{{.Status}}
+NAMES             STATUS
+dpl-ae4-nginx-1   Up 6 seconds
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-cliente curl -sS --max-time 5 -I http://www.dpl.local
+HTTP/1.1 200 OK
+Server: nginx/1.27.5
+Date: Mon, 16 Nov 2026 23:37:20 GMT
+Content-Type: text/html; charset=utf-8
+Connection: keep-alive
+
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-cliente curl -s -X POST -d usuario=alumno&password=CAMBIAR_ESTO http://www.dpl.local/api/login
+{"autenticado": true, "usuario": "alumno", "perfil": {"cn": "Alumno DPL", "mail": "alumno@dpl.local"}}[codigo de salida: 0]
+```
