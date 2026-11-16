@@ -106,3 +106,111 @@ Connection: keep-alive
 
 [codigo de salida: 0]
 ```
+
+## Fallo 2: Puerto
+
+### Como se provoco
+
+Se cambio en nginx/default.conf el proxy_pass de http://app:8000 a http://app:8080 y se reinicio nginx:
+
+```
+$ cambia_puerto 8000 8080
+6:        proxy_pass http://app:8080;
+[codigo de salida: 0]
+```
+
+```
+$ docker restart dpl-ae4-nginx-1
+dpl-ae4-nginx-1
+[codigo de salida: 0]
+```
+
+- **Sintoma observado:** www.dpl.local responde, pero con error 502 Bad Gateway. El DNS resuelve bien y la aplicacion sigue sana en su puerto.
+
+```
+$ docker exec dpl-cliente dig +short @172.30.0.10 www.dpl.local A
+172.30.0.30
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-cliente curl -sS --max-time 5 -I http://www.dpl.local
+HTTP/1.1 502 Bad Gateway
+Server: nginx/1.27.5
+Date: Mon, 16 Nov 2026 23:32:20 GMT
+Content-Type: text/html
+Content-Length: 157
+Connection: keep-alive
+
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-cliente curl -sS -o /dev/null -w HTTP %{http_code}\n http://app.dpl.local:8000/healthz
+HTTP 200
+[codigo de salida: 0]
+```
+
+- **Causa:** nginx reenvia al puerto 8080 del contenedor app, pero Gunicorn escucha en el 8000 (CMD del Dockerfile: --bind 0.0.0.0:8000). Nadie escucha en el 8080 y la conexion es rechazada.
+
+- **Comprobacion:** el log de nginx muestra el rechazo de conexion contra el upstream y la configuracion activa muestra el puerto equivocado:
+
+```
+$ docker logs --tail 8 dpl-ae4-nginx-1
+2026/11/16 23:32:14 [notice] 1#1: start worker process 27
+2026/11/16 23:32:14 [notice] 1#1: start worker process 28
+2026/11/16 23:32:14 [notice] 1#1: start worker process 29
+2026/11/16 23:32:14 [notice] 1#1: start worker process 30
+2026/11/16 23:32:14 [notice] 1#1: start worker process 31
+2026/11/16 23:32:14 [notice] 1#1: start worker process 32
+2026/11/16 23:32:20 [error] 21#21: *1 connect() failed (111: Connection refused) while connecting to upstream, client: 172.30.0.20, server: _, request: "HEAD / HTTP/1.1", upstream: "http://172.18.0.4:8080/", host: "www.dpl.local"
+172.30.0.20 - - [16/Nov/2026:23:32:20 +0000] "HEAD / HTTP/1.1" 502 0 "-" "curl/8.5.0" "-"
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-ae4-nginx-1 cat /etc/nginx/conf.d/default.conf
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+        proxy_pass http://app:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}[codigo de salida: 0]
+```
+
+- **Correccion aplicada:** se restaura proxy_pass http://app:8000 y se reinicia nginx.
+
+```
+$ cambia_puerto 8080 8000
+6:        proxy_pass http://app:8000;
+[codigo de salida: 0]
+```
+
+```
+$ docker restart dpl-ae4-nginx-1
+dpl-ae4-nginx-1
+[codigo de salida: 0]
+```
+
+- **Verificacion final:**
+
+```
+$ docker exec dpl-cliente curl -sS --max-time 5 -I http://www.dpl.local
+HTTP/1.1 200 OK
+Server: nginx/1.27.5
+Date: Mon, 16 Nov 2026 23:32:29 GMT
+Content-Type: text/html; charset=utf-8
+Connection: keep-alive
+
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-cliente curl -s -X POST -d usuario=alumno&password=CAMBIAR_ESTO http://www.dpl.local/api/login
+{"autenticado": true, "usuario": "alumno", "perfil": {"cn": "Alumno DPL", "mail": "alumno@dpl.local"}}[codigo de salida: 0]
+```
