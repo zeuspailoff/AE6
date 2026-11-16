@@ -342,7 +342,7 @@ dpl-ae4-app-1
 [codigo de salida: 0]
 ```
 
-- **Sintoma observado:** www.dpl.local sigue resolviendo y el puerto 80 responde, pero devuelve error 502; la aplicacion no responde en su puerto 8000 y el login falla.
+- **Sintoma observado:** www.dpl.local sigue resolviendo, pero la web no sirve nada: la peticion HEAD a la raiz agota el tiempo (curl 28) y el login a traves de nginx devuelve 502 Bad Gateway. La aplicacion tampoco responde directamente en su puerto 8000 (timeout, HTTP 000).
 
 ```
 $ docker exec dpl-cliente dig +short @172.30.0.10 www.dpl.local A
@@ -369,7 +369,7 @@ HTTP 502
 [codigo de salida: 0]
 ```
 
-- **Causa:** el contenedor dpl-ae4-app-1 esta parado (Exited). nginx esta sano, pero su upstream no existe; por eso la web da 502 y la aplicacion no escucha en el puerto 8000.
+- **Causa:** el contenedor dpl-ae4-app-1 esta parado (Exited). nginx esta sano, pero su upstream no existe; por eso nginx no consigue conectar con ella (timeouts y 502) y la aplicacion no escucha en el puerto 8000. Al pararse el contenedor su IP deja de existir en la red, de modo que la conexion no se rechaza al instante sino que queda esperando.
 
 - **Comprobacion:** estado de los contenedores, log de la aplicacion y log de nginx:
 
