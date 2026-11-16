@@ -451,3 +451,126 @@ $ docker exec dpl-cliente curl -s -o /dev/null -w HTTP %{http_code}\n -X POST -d
 HTTP 401
 [codigo de salida: 0]
 ```
+
+## Fallo 5: Autenticacion
+
+### Como se provoco
+
+Se recreo el contenedor de la aplicacion con una LDAP_BASE_DN erronea (ou=personas en lugar de ou=usuarios) y se reinicio nginx para que resuelva de nuevo el nombre del upstream:
+
+```
+$ en_ae4 env LDAP_BASE_DN=ou=personas,dc=dpl,dc=local docker compose -f compose.yml -f compose.ae6.yml up -d app
+ Container dpl-ae4-db-1 Running 
+ Container dpl-ae4-app-1 Recreate 
+ Container dpl-ae4-app-1 Recreated 
+ Container dpl-ae4-db-1 Waiting 
+ Container dpl-ae4-db-1 Healthy 
+ Container dpl-ae4-app-1 Starting 
+ Container dpl-ae4-app-1 Started 
+[codigo de salida: 0]
+```
+
+```
+$ docker restart dpl-ae4-nginx-1
+dpl-ae4-nginx-1
+[codigo de salida: 0]
+```
+
+- **Sintoma observado:** la web y la aplicacion responden con normalidad, pero el login con credenciales correctas devuelve 401.
+
+```
+$ docker exec dpl-cliente curl -sS --max-time 5 -o /dev/null -w HTTP %{http_code}\n http://www.dpl.local
+HTTP 200
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-cliente curl -sS --max-time 5 -o /dev/null -w HTTP %{http_code}\n http://app.dpl.local:8000/healthz
+HTTP 200
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-cliente curl -s -w \nHTTP %{http_code}\n -X POST -d usuario=alumno&password=CAMBIAR_ESTO http://www.dpl.local/api/login
+{"autenticado": false, "usuario": "alumno", "detalle": "automatic bind not successful - invalidCredentials"}
+HTTP 401
+[codigo de salida: 0]
+```
+
+- **Causa:** la variable LDAP_BASE_DN de la aplicacion apunta a una unidad organizativa que no existe, asi que el DN con el que la vista intenta el bind (uid=alumno,ou=personas,...) no existe en el directorio. El directorio, el DNS, nginx y Gunicorn estan sanos.
+
+- **Comprobacion:** el directorio acepta las mismas credenciales con el DN correcto, y las variables LDAP_* del contenedor muestran la base equivocada:
+
+```
+$ docker exec dpl-cliente ldapwhoami -x -H ldap://172.30.0.10 -D uid=alumno,ou=usuarios,dc=dpl,dc=local -w CAMBIAR_ESTO
+dn:uid=alumno,ou=usuarios,dc=dpl,dc=local
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-ae4-app-1 env
+PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+HOSTNAME=d33bbba58d9b
+LDAP_BASE_DN=ou=personas,dc=dpl,dc=local
+LDAP_USER_FILTER=(uid=%s)
+APP_MENSAJE=Hola desde Compose
+LDAP_HOST=ldap://172.30.0.10
+DB_HOST=db
+DB_USER=alumno
+DB_PASSWORD=CAMBIAR_ESTO
+DB_NAME=travelroad
+APP_DATA_DIR=/data
+LANG=C.UTF-8
+GPG_KEY=7169605F62C751356D054A26A821E680E5FA6305
+PYTHON_VERSION=3.12.16
+PYTHON_SHA256=b5796915dc45ff745cfb4e990a7e7c93d6f546328a102ce31448d69ebc37575c
+HOME=/home/appuser
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-ae4-app-1 printenv LDAP_HOST LDAP_BASE_DN LDAP_USER_FILTER
+ldap://172.30.0.10
+ou=personas,dc=dpl,dc=local
+(uid=%s)
+[codigo de salida: 0]
+```
+
+- **Correccion aplicada:** se recrea la aplicacion con los valores por defecto del compose (LDAP_BASE_DN=ou=usuarios,dc=dpl,dc=local) y se reinicia nginx.
+
+```
+$ en_ae4 docker compose -f compose.yml -f compose.ae6.yml up -d app
+ Container dpl-ae4-db-1 Running 
+ Container dpl-ae4-app-1 Recreate 
+ Container dpl-ae4-app-1 Recreated 
+ Container dpl-ae4-db-1 Waiting 
+ Container dpl-ae4-db-1 Healthy 
+ Container dpl-ae4-app-1 Starting 
+ Container dpl-ae4-app-1 Started 
+[codigo de salida: 0]
+```
+
+```
+$ docker restart dpl-ae4-nginx-1
+dpl-ae4-nginx-1
+[codigo de salida: 0]
+```
+
+- **Verificacion final:**
+
+```
+$ docker exec dpl-ae4-app-1 printenv LDAP_BASE_DN
+ou=usuarios,dc=dpl,dc=local
+[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-cliente curl -s -X POST -d usuario=alumno&password=CAMBIAR_ESTO http://www.dpl.local/api/login
+{"autenticado": true, "usuario": "alumno", "perfil": {"cn": "Alumno DPL", "mail": "alumno@dpl.local"}}[codigo de salida: 0]
+```
+
+```
+$ docker exec dpl-cliente curl -s -o /dev/null -w HTTP %{http_code}\n -X POST -d usuario=alumno&password=incorrecta http://www.dpl.local/api/login
+HTTP 401
+[codigo de salida: 0]
+```
