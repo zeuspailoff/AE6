@@ -1,0 +1,269 @@
+AE6 - Comprobaciones (generado el 2026-11-16 23:28)
+### 1. DNS (dpl-lab)
+$ docker exec dpl-lab pgrep -a named
+589 named -u bind -g
+[codigo de salida: 0]
+$ docker exec dpl-lab ss -lunp
+State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess
+UNCONN 0      0         127.0.0.11:55922      0.0.0.0:*          
+UNCONN 0      0        172.30.0.10:53         0.0.0.0:*          
+UNCONN 0      0        172.30.0.10:53         0.0.0.0:*          
+UNCONN 0      0        172.30.0.10:53         0.0.0.0:*          
+UNCONN 0      0        172.30.0.10:53         0.0.0.0:*          
+UNCONN 0      0        172.30.0.10:53         0.0.0.0:*          
+UNCONN 0      0        172.30.0.10:53         0.0.0.0:*          
+UNCONN 0      0        172.30.0.10:53         0.0.0.0:*          
+UNCONN 0      0        172.30.0.10:53         0.0.0.0:*          
+UNCONN 0      0        172.30.0.10:53         0.0.0.0:*          
+UNCONN 0      0        172.30.0.10:53         0.0.0.0:*          
+UNCONN 0      0        172.30.0.10:53         0.0.0.0:*          
+UNCONN 0      0        172.30.0.10:53         0.0.0.0:*          
+UNCONN 0      0          127.0.0.1:53         0.0.0.0:*          
+UNCONN 0      0          127.0.0.1:53         0.0.0.0:*          
+UNCONN 0      0          127.0.0.1:53         0.0.0.0:*          
+UNCONN 0      0          127.0.0.1:53         0.0.0.0:*          
+UNCONN 0      0          127.0.0.1:53         0.0.0.0:*          
+UNCONN 0      0          127.0.0.1:53         0.0.0.0:*          
+UNCONN 0      0          127.0.0.1:53         0.0.0.0:*          
+UNCONN 0      0          127.0.0.1:53         0.0.0.0:*          
+UNCONN 0      0          127.0.0.1:53         0.0.0.0:*          
+UNCONN 0      0          127.0.0.1:53         0.0.0.0:*          
+UNCONN 0      0          127.0.0.1:53         0.0.0.0:*          
+UNCONN 0      0          127.0.0.1:53         0.0.0.0:*          
+UNCONN 0      0              [::1]:53            [::]:*          
+UNCONN 0      0              [::1]:53            [::]:*          
+UNCONN 0      0              [::1]:53            [::]:*          
+UNCONN 0      0              [::1]:53            [::]:*          
+UNCONN 0      0              [::1]:53            [::]:*          
+UNCONN 0      0              [::1]:53            [::]:*          
+UNCONN 0      0              [::1]:53            [::]:*          
+UNCONN 0      0              [::1]:53            [::]:*          
+UNCONN 0      0              [::1]:53            [::]:*          
+UNCONN 0      0              [::1]:53            [::]:*          
+UNCONN 0      0              [::1]:53            [::]:*          
+UNCONN 0      0              [::1]:53            [::]:*          
+[codigo de salida: 0]
+$ docker exec dpl-lab named-checkconf
+[codigo de salida: 0]
+$ docker exec dpl-lab named-checkzone dpl.local /etc/bind/db.dpl.local
+zone dpl.local/IN: loaded serial 2026111601
+OK
+[codigo de salida: 0]
+### 2. Resolucion desde dpl-cliente (sin /etc/hosts)
+$ docker exec dpl-cliente grep dpl.local /etc/hosts
+[codigo de salida: 1]
+$ docker exec dpl-cliente nslookup www.dpl.local 172.30.0.10
+Server:		172.30.0.10
+Address:	172.30.0.10#53
+
+Name:	www.dpl.local
+Address: 172.30.0.30
+
+[codigo de salida: 0]
+$ docker exec dpl-cliente dig @172.30.0.10 app.dpl.local A +noall +answer
+app.dpl.local.		604800	IN	A	172.30.0.31
+[codigo de salida: 0]
+$ docker exec dpl-cliente host -t a www.dpl.local
+www.dpl.local has address 172.30.0.30
+[codigo de salida: 0]
+$ docker exec dpl-cliente host -t ns dpl.local
+dpl.local name server ns1.dpl.local.
+[codigo de salida: 0]
+$ docker exec dpl-cliente ping -c 3 www.dpl.local
+PING www.dpl.local (172.30.0.30) 56(84) bytes of data.
+64 bytes from dpl-ae4-nginx-1.dpl-net (172.30.0.30): icmp_seq=1 ttl=64 time=0.120 ms
+64 bytes from dpl-ae4-nginx-1.dpl-net (172.30.0.30): icmp_seq=2 ttl=64 time=0.181 ms
+64 bytes from dpl-ae4-nginx-1.dpl-net (172.30.0.30): icmp_seq=3 ttl=64 time=0.075 ms
+
+--- www.dpl.local ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2028ms
+rtt min/avg/max/mdev = 0.075/0.125/0.181/0.043 ms
+[codigo de salida: 0]
+### 3. Servicios por nombre
+$ docker exec dpl-cliente curl -I http://www.dpl.local
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+HTTP/1.1 200 OK
+Server: nginx/1.27.5
+Date: Mon, 16 Nov 2026 23:28:38 GMT
+Content-Type: text/html; charset=utf-8
+Connection: keep-alive
+
+[codigo de salida: 0]
+$ docker exec dpl-cliente curl -s http://app.dpl.local:8000/api/mensaje
+{"mensaje": "Hola desde Compose", "hostname": "319cbebb595c", "fecha": "2026-11-17T00:28:39"}[codigo de salida: 0]
+### 4. Directorio (slapd)
+$ docker exec dpl-lab pgrep -a slapd
+995 slapd -d 0 -h ldap:/// -u openldap -g openldap
+[codigo de salida: 0]
+$ docker exec dpl-lab ss -lntp
+State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess
+LISTEN 0      4096      127.0.0.11:36857      0.0.0.0:*          
+LISTEN 0      2048         0.0.0.0:389        0.0.0.0:*          
+LISTEN 0      5          127.0.0.1:953        0.0.0.0:*          
+LISTEN 0      5          127.0.0.1:953        0.0.0.0:*          
+LISTEN 0      5          127.0.0.1:953        0.0.0.0:*          
+LISTEN 0      5          127.0.0.1:953        0.0.0.0:*          
+LISTEN 0      5          127.0.0.1:953        0.0.0.0:*          
+LISTEN 0      5          127.0.0.1:953        0.0.0.0:*          
+LISTEN 0      5          127.0.0.1:953        0.0.0.0:*          
+LISTEN 0      5          127.0.0.1:953        0.0.0.0:*          
+LISTEN 0      5          127.0.0.1:953        0.0.0.0:*          
+LISTEN 0      5          127.0.0.1:953        0.0.0.0:*          
+LISTEN 0      5          127.0.0.1:953        0.0.0.0:*          
+LISTEN 0      5          127.0.0.1:953        0.0.0.0:*          
+LISTEN 0      10         127.0.0.1:53         0.0.0.0:*          
+LISTEN 0      10         127.0.0.1:53         0.0.0.0:*          
+LISTEN 0      10         127.0.0.1:53         0.0.0.0:*          
+LISTEN 0      10         127.0.0.1:53         0.0.0.0:*          
+LISTEN 0      10         127.0.0.1:53         0.0.0.0:*          
+LISTEN 0      10         127.0.0.1:53         0.0.0.0:*          
+LISTEN 0      10         127.0.0.1:53         0.0.0.0:*          
+LISTEN 0      10         127.0.0.1:53         0.0.0.0:*          
+LISTEN 0      10         127.0.0.1:53         0.0.0.0:*          
+LISTEN 0      10         127.0.0.1:53         0.0.0.0:*          
+LISTEN 0      10         127.0.0.1:53         0.0.0.0:*          
+LISTEN 0      10         127.0.0.1:53         0.0.0.0:*          
+LISTEN 0      10       172.30.0.10:53         0.0.0.0:*          
+LISTEN 0      10       172.30.0.10:53         0.0.0.0:*          
+LISTEN 0      10       172.30.0.10:53         0.0.0.0:*          
+LISTEN 0      10       172.30.0.10:53         0.0.0.0:*          
+LISTEN 0      10       172.30.0.10:53         0.0.0.0:*          
+LISTEN 0      10       172.30.0.10:53         0.0.0.0:*          
+LISTEN 0      10       172.30.0.10:53         0.0.0.0:*          
+LISTEN 0      10       172.30.0.10:53         0.0.0.0:*          
+LISTEN 0      10       172.30.0.10:53         0.0.0.0:*          
+LISTEN 0      10       172.30.0.10:53         0.0.0.0:*          
+LISTEN 0      10       172.30.0.10:53         0.0.0.0:*          
+LISTEN 0      10       172.30.0.10:53         0.0.0.0:*          
+LISTEN 0      5              [::1]:953           [::]:*          
+LISTEN 0      5              [::1]:953           [::]:*          
+LISTEN 0      5              [::1]:953           [::]:*          
+LISTEN 0      5              [::1]:953           [::]:*          
+LISTEN 0      5              [::1]:953           [::]:*          
+LISTEN 0      5              [::1]:953           [::]:*          
+LISTEN 0      5              [::1]:953           [::]:*          
+LISTEN 0      5              [::1]:953           [::]:*          
+LISTEN 0      5              [::1]:953           [::]:*          
+LISTEN 0      5              [::1]:953           [::]:*          
+LISTEN 0      5              [::1]:953           [::]:*          
+LISTEN 0      5              [::1]:953           [::]:*          
+LISTEN 0      10             [::1]:53            [::]:*          
+LISTEN 0      10             [::1]:53            [::]:*          
+LISTEN 0      10             [::1]:53            [::]:*          
+LISTEN 0      10             [::1]:53            [::]:*          
+LISTEN 0      10             [::1]:53            [::]:*          
+LISTEN 0      10             [::1]:53            [::]:*          
+LISTEN 0      10             [::1]:53            [::]:*          
+LISTEN 0      10             [::1]:53            [::]:*          
+LISTEN 0      10             [::1]:53            [::]:*          
+LISTEN 0      10             [::1]:53            [::]:*          
+LISTEN 0      10             [::1]:53            [::]:*          
+LISTEN 0      10             [::1]:53            [::]:*          
+LISTEN 0      2048            [::]:389           [::]:*          
+[codigo de salida: 0]
+$ docker exec dpl-lab slapcat
+dn: dc=dpl,dc=local
+objectClass: top
+objectClass: dcObject
+objectClass: organization
+o: DPL
+dc: dpl
+structuralObjectClass: organization
+entryUUID: d9db5840-765e-1041-84b3-513599e10e81
+creatorsName: cn=admin,dc=dpl,dc=local
+createTimestamp: 20261116231151Z
+entryCSN: 20261116231151.522667Z#000000#000#000000
+modifiersName: cn=admin,dc=dpl,dc=local
+modifyTimestamp: 20261116231151Z
+
+dn: ou=usuarios,dc=dpl,dc=local
+objectClass: organizationalUnit
+ou: usuarios
+structuralObjectClass: organizationalUnit
+entryUUID: 025cd9ce-765f-1041-871b-3d6be36df4f5
+creatorsName: cn=admin,dc=dpl,dc=local
+createTimestamp: 20261116231259Z
+entryCSN: 20261116231259.480263Z#000000#000#000000
+modifiersName: cn=admin,dc=dpl,dc=local
+modifyTimestamp: 20261116231259Z
+
+dn: uid=alumno,ou=usuarios,dc=dpl,dc=local
+objectClass: inetOrgPerson
+uid: alumno
+cn: Alumno DPL
+sn: Alumno
+mail: alumno@dpl.local
+userPassword:: Q0FNQklBUl9FU1RP
+structuralObjectClass: inetOrgPerson
+entryUUID: 0260d1b4-765f-1041-871c-3d6be36df4f5
+creatorsName: cn=admin,dc=dpl,dc=local
+createTimestamp: 20261116231259Z
+entryCSN: 20261116231259.506287Z#000000#000#000000
+modifiersName: cn=admin,dc=dpl,dc=local
+modifyTimestamp: 20261116231259Z
+
+dn: uid=maria,ou=usuarios,dc=dpl,dc=local
+objectClass: inetOrgPerson
+uid: maria
+cn: Maria DPL
+sn: Maria
+mail: maria@dpl.local
+userPassword:: Q0FNQklBUl9FU1RP
+structuralObjectClass: inetOrgPerson
+entryUUID: 026187b2-765f-1041-871d-3d6be36df4f5
+creatorsName: cn=admin,dc=dpl,dc=local
+createTimestamp: 20261116231259Z
+entryCSN: 20261116231259.510946Z#000000#000#000000
+modifiersName: cn=admin,dc=dpl,dc=local
+modifyTimestamp: 20261116231259Z
+
+[codigo de salida: 0]
+$ docker exec dpl-lab ldapsearch -x -LLL -b dc=dpl,dc=local (uid=*) dn cn mail
+dn: uid=alumno,ou=usuarios,dc=dpl,dc=local
+cn: Alumno DPL
+mail: alumno@dpl.local
+
+dn: uid=maria,ou=usuarios,dc=dpl,dc=local
+cn: Maria DPL
+mail: maria@dpl.local
+
+[codigo de salida: 0]
+$ docker exec dpl-cliente ldapwhoami -x -H ldap://172.30.0.10 -D uid=alumno,ou=usuarios,dc=dpl,dc=local -w CAMBIAR_ESTO
+dn:uid=alumno,ou=usuarios,dc=dpl,dc=local
+[codigo de salida: 0]
+$ docker exec dpl-cliente ldapwhoami -x -H ldap://172.30.0.10 -D uid=alumno,ou=usuarios,dc=dpl,dc=local -w incorrecta
+ldap_bind: Invalid credentials (49)
+[codigo de salida: 49]
+### 5. Login de la aplicacion contra el directorio
+$ docker exec dpl-cliente curl -s -w \nHTTP %{http_code}\n -X POST -d usuario=alumno&password=CAMBIAR_ESTO http://www.dpl.local/api/login
+{"autenticado": true, "usuario": "alumno", "perfil": {"cn": "Alumno DPL", "mail": "alumno@dpl.local"}}
+HTTP 200
+[codigo de salida: 0]
+$ docker exec dpl-cliente curl -s -w \nHTTP %{http_code}\n -X POST -d usuario=alumno&password=incorrecta http://www.dpl.local/api/login
+{"autenticado": false, "usuario": "alumno", "detalle": "automatic bind not successful - invalidCredentials"}
+HTTP 401
+[codigo de salida: 0]
+### 6. Script de comprobacion automatica
+$ bash scripts/comprobar.sh
+== DNS ==
+[OK]    named-checkconf
+[OK]    named-checkzone
+[OK]    named activo
+[OK]    www.dpl.local -> 172.30.0.30
+[OK]    app.dpl.local -> 172.30.0.31
+[OK]    sin entradas locales en /etc/hosts
+== Directorio ==
+[OK]    slapd activo
+[OK]    usuario alumno en el directorio
+[OK]    bind correcto
+[OK]    bind incorrecto rechazado
+== Integracion ==
+[OK]    Web por nombre (200)
+[OK]    aplicacion por nombre (200)
+[OK]    login LDAP (200)
+[OK]    login incorrecto (401)
+
+Resultado: todas las comprobaciones han pasado.
+[codigo de salida: 0]
