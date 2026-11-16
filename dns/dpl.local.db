@@ -1,6 +1,6 @@
 $TTL 604800
 @   IN  SOA ns1.dpl.local. admin.dpl.local. (
-            2026111601  ; Serial (AAAAMMDDNN)
+            2026111603  ; Serial (AAAAMMDDNN)
             604800      ; Refresh
             86400       ; Retry
             2419200     ; Expire
