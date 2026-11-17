@@ -1,7 +1,7 @@
 # AE6 - DNS y servicio de directorio para el despliegue
 
 Autor: Abraham Diaz
-Repositorio remoto: https://github.com/zeuspailoff/ae6
+Repositorio remoto: https://github.com/zeuspailoff/AE6
 Repositorio de la aplicacion (AE4, con el override de la AE6): https://github.com/zeuspailoff/dpl-ae4
 
 Entorno: Docker Desktop (WSL 2) sobre Windows. Contenedores `dpl-lab` y `dpl-cliente` con Ubuntu 24.04, BIND 9.18.39 y slapd/OpenLDAP, y la aplicacion de la AE4 (nginx + Django/Gunicorn).
